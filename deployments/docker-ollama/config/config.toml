@@ -11,15 +11,27 @@ max_concurrent_jobs = 1
 
 # Make a change on a local branch and commit it. Nothing is pushed.
 [commands.code]
-executor = "opencode"
+executor = "opencode-commit"
 prompt_file = "prompts/local-change.md"
 timeout = "60m"
 
-# Send the prompt to the agent unchanged.
+# Send the prompt to the agent unchanged. The agent may still edit files.
 [commands.ask]
 executor = "opencode"
 timeout = "30m"
 
-# Plan first, pause for approval, then implement.
+# Workflow stages. They hand off through {{task.output_dir}}/plan.md, which
+# exists only inside a workflow, so use them through plan_then_code.
+[commands.plan]
+executor = "opencode-plan"
+prompt_file = "prompts/plan.md"
+timeout = "30m"
+
+[commands.implement]
+executor = "opencode-commit"
+prompt_file = "prompts/implement-plan.md"
+timeout = "60m"
+
+# Write a plan, pause for your approval, then implement it.
 [workflows.plan_then_code]
-steps = ["ask", { command = "code", approval = "before" }]
+steps = ["plan", { command = "implement", approval = "before" }]

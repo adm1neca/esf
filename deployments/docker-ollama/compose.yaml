@@ -15,10 +15,13 @@ services:
     build:
       context: ../..
       dockerfile: deployments/docker-ollama/Dockerfile
+      args:
+        EXTRA_APT_PACKAGES: ${EXTRA_APT_PACKAGES:-}
+        UID: ${MACHINIST_UID:-1000}
+        GID: ${MACHINIST_GID:-1000}
     image: esf-machinist-ollama:dev
     container_name: esf-machinist
     restart: unless-stopped
-    init: false # tini is the entrypoint
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-coder:30b}
