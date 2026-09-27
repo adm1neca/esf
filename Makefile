@@ -76,7 +76,7 @@ test-integration: ## Run tests that need the live CubeSandbox (tagged integratio
 lint: ## Check Go formatting, vet, and shell scripts without changing files
 	@out=$$(find cmd internal -name '*.go' -print0 | xargs -0 gofmt -l); if [ -n "$$out" ]; then echo "unformatted Go files:"; echo "$$out"; exit 1; fi
 	$(GO) vet ./...
-	shellcheck deployments/dev/temporal/scripts/*.sh scripts/*.sh
+	shellcheck deployments/dev/temporal/scripts/*.sh deployments/docker-ollama/*.sh scripts/*.sh
 
 .PHONY: fmt
 fmt: ## Format all Go code

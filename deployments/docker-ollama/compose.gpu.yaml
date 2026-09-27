@@ -1,0 +1,13 @@
+# NVIDIA GPU for the containerised Ollama. Requires the NVIDIA Container
+# Toolkit on Linux, or Docker Desktop's WSL 2 backend with a current NVIDIA
+# driver on Windows.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

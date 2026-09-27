@@ -145,6 +145,7 @@ approvals. See [workflow guidance](docs/workflows.md).
 | [DSPy/Jev intake](docs/production-deployment.md#optional-dspyjev-intake-advisory) | Optional typed task advice and secure TypeSafe credential setup |
 | [DSPy brief lab](tools/brief_lab/README.md) | Offline, evidence-scored implementation brief experiments |
 | [Production deployment](docs/production-deployment.md) | Service setup, TLS, encryption and recovery |
+| [Docker + Ollama](deployments/docker-ollama/README.md) | Machinist and a local Ollama model in Docker (Windows, macOS, Linux) |
 | [Readiness review](docs/production-readiness.md) | Validation and operational requirements |
 | [Machinist documentation](docs/README.md) | Inherited CLI and control plane |
 | [Architecture decisions](docs/adr/) | Design rationale |

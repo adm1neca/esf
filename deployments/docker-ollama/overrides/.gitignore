@@ -1,0 +1,4 @@
+# Files here replace the bundled configuration (mounted read-only at /config):
+#   config.toml, worker.toml, opencode.json
+*
+!.gitignore
