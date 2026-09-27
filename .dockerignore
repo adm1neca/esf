@@ -9,3 +9,6 @@ dist
 *.db-shm
 factory.toml
 deployments/dev/temporal/.env
+deployments/docker-ollama/workspace
+deployments/docker-ollama/overrides
+deployments/docker-ollama/.env

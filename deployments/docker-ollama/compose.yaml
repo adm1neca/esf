@@ -1,0 +1,49 @@
+# Machinist + OpenCode V2 in Docker, using an Ollama model.
+#
+# Ollama on the host (default):
+#   docker compose -f deployments/docker-ollama/compose.yaml up -d --build
+# Ollama in Docker too:
+#   docker compose -f deployments/docker-ollama/compose.yaml \
+#                  -f deployments/docker-ollama/compose.ollama.yaml up -d --build
+#
+# See README.md in this directory.
+
+name: esf-ollama
+
+services:
+  machinist:
+    build:
+      context: ../..
+      dockerfile: deployments/docker-ollama/Dockerfile
+    image: esf-machinist-ollama:dev
+    container_name: esf-machinist
+    restart: unless-stopped
+    init: false # tini is the entrypoint
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-coder:30b}
+      OLLAMA_MODELS: ${OLLAMA_MODELS:-}
+      MACHINIST_PORT: ${MACHINIST_PORT:-7331}
+      WORKER_NAME: ${WORKER_NAME:-docker-ollama}
+      GIT_USER_NAME: ${GIT_USER_NAME:-Machinist Agent}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-machinist@localhost}
+    # Docker Desktop provides host.docker.internal; this adds it on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Published on the host's loopback only. The UI trusts localhost origins.
+      - "127.0.0.1:${MACHINIST_PORT:-7331}:7332"
+    volumes:
+      - machinist-state:/home/machinist/.machinist
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ./overrides:/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7331/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  machinist-state:
+    name: esf-machinist-state

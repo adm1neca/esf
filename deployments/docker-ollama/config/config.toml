@@ -1,0 +1,25 @@
+# Machinist control plane for the Docker + Ollama stack.
+# Replace it by mounting your own config.toml into /config.
+
+[server]
+# The container forwards this loopback address; see entrypoint.sh.
+listen = "127.0.0.1:7331"
+database = "~/.machinist/server/machinist.db"
+worker_token_file = "~/.machinist/server/worker.token"
+# One local model usually saturates the GPU; run jobs one at a time.
+max_concurrent_jobs = 1
+
+# Make a change on a local branch and commit it. Nothing is pushed.
+[commands.code]
+executor = "opencode"
+prompt_file = "prompts/local-change.md"
+timeout = "60m"
+
+# Send the prompt to the agent unchanged.
+[commands.ask]
+executor = "opencode"
+timeout = "30m"
+
+# Plan first, pause for approval, then implement.
+[workflows.plan_then_code]
+steps = ["ask", { command = "code", approval = "before" }]
