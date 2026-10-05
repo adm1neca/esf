@@ -206,7 +206,16 @@ func (s *ChangeStore) lockChange(changeID string) (func(), error) {
 		return nil, err
 	}
 	defer root.Close()
-	lock, err := root.OpenFile(changeID+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	var lock *os.File
+	for attempt := 0; ; attempt++ {
+		lock, err = root.OpenFile(changeID+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+		if err == nil || !errors.Is(err, os.ErrNotExist) || attempt == 4 {
+			break
+		}
+		// Concurrent first opens can briefly see ENOENT on macOS while another
+		// worker creates the lock file. Retry only that transient condition.
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
 	if err != nil {
 		return nil, err
 	}
