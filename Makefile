@@ -10,7 +10,9 @@ SHELL := /bin/bash
 
 GO ?= go
 UV ?= uv
-PYTHON_VERSION ?= 3.14.7
+PYTHON_VERSION ?= 3.14.8
+ESF_VERSION ?= 0.6.1
+ESF_COMMIT := $(shell git rev-parse HEAD)
 
 BIN_DIR    := bin
 FACTORY    := $(BIN_DIR)/factory
@@ -30,7 +32,8 @@ help: ## Show this help
 .PHONY: build
 build: ## Build the factory and discovery binaries into ./bin
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -o $(FACTORY) ./cmd/factory
+	$(GO) build -ldflags="-X github.com/mitkox/esf/internal/factory.Version=$(ESF_VERSION) -X main.buildCommit=$(ESF_COMMIT)" -o $(FACTORY) ./cmd/factory
+	$(GO) build -ldflags="-X main.version=v$(ESF_VERSION)" -o $(BIN_DIR)/machinist ./cmd/machinist
 	$(GO) build -o $(BIN_DIR)/cube-smoke ./tools/cube-smoke
 	$(GO) build -o $(BIN_DIR)/cube-netprobe ./tools/cube-netprobe
 	$(GO) build -o $(BIN_DIR)/cube-agent-spike ./tools/cube-agent-spike
@@ -58,9 +61,9 @@ test-python: ## Run optional Python tool tests against uv.lock
 	fi
 
 .PHONY: test-python-docker
-test-python-docker: ## Test optional Python tools in the pinned 3.14.7 image
+test-python-docker: ## Test optional Python tools in the pinned 3.14.8 image
 	docker build -f deploy/images/Dockerfile.intake --build-arg ESF_COMMIT=$$(git rev-parse HEAD) -t esf/intake:python-tests .
-	docker run --rm --entrypoint /opt/esf/.venv/bin/python esf/intake:python-tests -c 'import sys; assert sys.version_info[:3] == (3, 14, 7)'
+	docker run --rm --entrypoint /opt/esf/.venv/bin/python esf/intake:python-tests -c 'import sys; assert sys.version_info[:3] == (3, 14, 8)'
 	docker run --rm --entrypoint /opt/esf/.venv/bin/python esf/intake:python-tests -m unittest discover -s tools/intake/tests -p 'test_*.py'
 	docker run --rm --entrypoint /opt/esf/.venv/bin/python esf/intake:python-tests -m unittest discover -s tools/brief_lab/tests -p 'test_*.py'
 

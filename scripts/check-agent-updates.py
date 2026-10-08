@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Report upstream agent releases that need a separate compatibility review."""
+"""Report upstream agent releases needing compatibility review as warnings."""
 
 import json
+import os
 from pathlib import Path
 import sys
 from urllib.request import Request, urlopen
@@ -28,8 +29,18 @@ def main():
         if version != pinned[agent]:
             changed = True
     if changed:
-        print("A compatibility-sensitive agent update needs qualification and new hashes.", file=sys.stderr)
-        return 1
+        message = (
+            "An upstream agent release needs compatibility review and new hashes; "
+            "qualified pins were left unchanged. See the step log for version details."
+        )
+        print(f"::warning title=Agent update needs qualification::{message}")
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with open(summary_path, "a", encoding="utf-8") as summary:
+                summary.write(
+                    "### Agent update needs qualification\n\n"
+                    f"{message}\n"
+                )
     return 0
 
 

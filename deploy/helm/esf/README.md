@@ -1,4 +1,4 @@
-# ESF v0.5.0 Helm chart
+# ESF v0.6.1 Helm chart
 
 This chart runs one factory worker and an optional, loopback-bound Machinist
 console. CubeSandbox 0.7.2, Temporal 1.32.0, and PostgreSQL 16.15 are
@@ -22,20 +22,21 @@ starting the worker. The NetworkPolicy denies ingress and permits only DNS plus
 the explicit egress CIDRs and ports you supply. Configure the CNI to enforce
 NetworkPolicy and include Cube control/data, Temporal, and OTLP destinations.
 
-For QMS, set `factory.quality.enabled`, `nodeName`, and `socketHostPath` to a
-dedicated Linux authority node and a narrowly scoped host directory. Its
-Unix-socket permissions must be managed on that host. Distinct approvers use
-distinct Linux UIDs over SSH; Kubernetes exec does not prove a separate human
-identity. Keep the QMS authority and its records outside the pod lifecycle.
+`factory.credentialSecret` is mounted only in a restricted init container. The
+factory image copies projected Secret files into a memory-backed volume as
+regular files with mode `0600`, inside an owner-only directory. The worker
+mounts that directory read-only at `/etc/esf/credentials`; credential paths keep
+their existing names. Staging rejects escaping symlinks, nonregular files,
+files over 64 KiB, and totals over 1 MiB. Drain and recreate the pod when
+rotating credentials; running pods retain their staged credential snapshot.
 
 ## Upgrade and recovery
 
 1. Stop new submissions, allow active runs to finish, and verify sandbox
-   cleanup and pending quality exports. Scale this chart's workloads to zero.
-2. Take consistent snapshots of the factory and console PVCs, QMS authority
-   state if enabled, and the operator-managed Temporal/PostgreSQL state. Save
-   configuration, payload keys, image digests, and the release inventory with
-   the snapshot.
+   cleanup. Scale this chart's workloads to zero.
+2. Take consistent snapshots of the factory and console PVCs and the
+   operator-managed Temporal/PostgreSQL state. Save configuration, payload
+   keys, image digests, and the release inventory with the snapshot.
 3. For an existing CubeSandbox Kubernetes installation upgrading to 0.7.2,
    follow the upstream node-drain procedure and acknowledge the host-network
    change with `hostNetworkChangeAck` before admitting ESF work.
@@ -46,9 +47,10 @@ identity. Keep the QMS authority and its records outside the pod lifecycle.
    submissions.
 
 Rollback after a schema migration means scaling down, restoring the matching
-PVC, QMS, and Temporal snapshots, and reinstalling the matching earlier images
+PVC and Temporal snapshots, and reinstalling the matching earlier images
 and chart. A binary downgrade against migrated state is unsupported. Perform a
 restore drill in an isolated namespace and storage set before production use.
 
-No Kubernetes acceptance or restore drill is recorded for this chart yet; the
-release inventory keeps the deployment qualification gate pending.
+Production qualification needs the matching attested companion manifest,
+including Kubernetes acceptance, restore, performance, and 24-hour soak
+evidence. See [the release procedure](../../../docs/release-v0.6.1.md).

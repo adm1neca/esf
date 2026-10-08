@@ -26,7 +26,6 @@ import (
 //
 // Constructing it validates configuration and connects nothing: Run connects.
 type Runtime struct {
-	Quality   *QualityRuntime
 	Config    Config
 	Provider  sandbox.Provider
 	Repos     *repository.Provider
@@ -115,9 +114,6 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 // Close releases resources held by the runtime.
 func (r *Runtime) Close(ctx context.Context) error {
 	var firstErr error
-	if r.Quality != nil {
-		firstErr = r.Quality.Store.Close()
-	}
 	if closer, ok := r.Provider.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
 			firstErr = err
@@ -132,7 +128,6 @@ func (r *Runtime) Close(ctx context.Context) error {
 // Activities builds the activity set for this runtime.
 func (r *Runtime) Activities() (*Activities, error) {
 	return NewActivities(ActivitiesOptions{
-		Quality:         r.Quality,
 		Provider:        r.Provider,
 		Repositories:    r.Repos,
 		Harnesses:       r.Harnesses,
@@ -147,42 +142,64 @@ func (r *Runtime) Activities() (*Activities, error) {
 
 // TemporalClient dials Temporal. The caller must Close the returned client.
 func (r *Runtime) TemporalClient() (client.Client, error) {
-	connection, err := r.Config.Temporal.connectionOptions()
+	return NewTemporalClient(r.Config, r.Log)
+}
+
+// NewTemporalClient dials Temporal from configuration without building a
+// runtime.
+//
+// Containment commands use it deliberately: stopping a run must not depend on
+// the configuration being policy-compliant. A worker refuses to start on an
+// unacknowledged open egress policy, but an operator must still be able to halt
+// the runs that are already in flight.
+func NewTemporalClient(cfg Config, log *slog.Logger) (client.Client, error) {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	connection, err := cfg.Temporal.connectionOptions()
 	if err != nil {
 		return nil, err
 	}
 	opts := client.Options{
-		HostPort:  r.Config.Temporal.HostPort,
-		Namespace: r.Config.Temporal.Namespace,
+		HostPort:  cfg.Temporal.HostPort,
+		Namespace: cfg.Temporal.Namespace,
 		// Identity makes it obvious in the Temporal UI which worker handled a
 		// task, and distinguishes concurrent workers on one host.
-		Identity:          workerIdentity(r.Config.Temporal.IdentityPrefix),
-		Logger:            newTemporalLogger(r.Log),
+		Identity:          workerIdentity(cfg.Temporal.IdentityPrefix),
+		Logger:            newTemporalLogger(log),
 		ConnectionOptions: connection,
 	}
-	if name := r.Config.Temporal.APIKeyEnv; name != "" {
+	if name := cfg.Temporal.APIKeyEnv; name != "" {
 		opts.Credentials = client.NewAPIKeyStaticCredentials(os.Getenv(name))
 	}
-	if path := r.Config.Temporal.PayloadKeyring; path != "" {
-		codec, err := loadPayloadCodec(path)
-		if err != nil {
-			return nil, err
-		}
-		opts.DataConverter = converter.NewCodecDataConverter(converter.GetDefaultDataConverter(), codec)
+	opts.DataConverter, err = TemporalDataConverter(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Temporal.PayloadKeyring != "" {
 		opts.FailureConverter = temporal.NewDefaultFailureConverter(temporal.DefaultFailureConverterOptions{EncodeCommonAttributes: true, DataConverter: opts.DataConverter})
 	}
 	c, err := client.Dial(opts)
 	if err != nil {
-		return nil, fmt.Errorf("dial temporal at %s: %w", r.Config.Temporal.HostPort, err)
+		return nil, fmt.Errorf("dial temporal at %s: %w", cfg.Temporal.HostPort, err)
 	}
 	return c, nil
 }
 
+// TemporalDataConverter also decodes encrypted visibility memos for incident controls.
+func TemporalDataConverter(cfg Config) (converter.DataConverter, error) {
+	if cfg.Temporal.PayloadKeyring == "" {
+		return converter.GetDefaultDataConverter(), nil
+	}
+	codec, err := loadPayloadCodec(cfg.Temporal.PayloadKeyring)
+	if err != nil {
+		return nil, err
+	}
+	return converter.NewCodecDataConverter(converter.GetDefaultDataConverter(), codec), nil
+}
+
 // RunWorker starts the Temporal worker and blocks until ctx is cancelled.
 func (r *Runtime) RunWorker(ctx context.Context) error {
-	if err := r.openQuality(); err != nil {
-		return err
-	}
 	acts, err := r.Activities()
 	if err != nil {
 		return err
@@ -217,7 +234,6 @@ func (r *Runtime) RunWorker(ctx context.Context) error {
 	})
 
 	w.RegisterWorkflowWithOptions(SoftwareChangeWorkflow, workflowRegistrationOptions())
-	w.RegisterWorkflow(CAPAWorkflow)
 
 	// RegisterActivity panics on a bad method set, so it has no error return.
 	w.RegisterActivity(acts)
@@ -243,13 +259,6 @@ func (r *Runtime) RunWorker(ctx context.Context) error {
 		return fmt.Errorf("temporal worker stopped: %w", err)
 	}
 	defer w.Stop()
-	if r.Quality != nil {
-		stop, err := r.serveQuality(ctx, temporalClient)
-		if err != nil {
-			return err
-		}
-		defer stop()
-	}
 	select {
 	case <-ctx.Done():
 		return nil
@@ -261,6 +270,11 @@ func (r *Runtime) RunWorker(ctx context.Context) error {
 // collectSecrets gathers the values that must never appear in evidence.
 func collectSecrets(cfg Config, harnesses *agentharness.Registry) []string {
 	var secrets []string
+	if path := strings.TrimSpace(cfg.Hardening.AlertWebhookTokenFile); path != "" {
+		if value, err := readCredentialFile(path); err == nil {
+			secrets = append(secrets, value)
+		}
+	}
 	if name := cfg.Temporal.APIKeyEnv; name != "" {
 		secrets = append(secrets, os.Getenv(name))
 	}

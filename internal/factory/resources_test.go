@@ -21,7 +21,7 @@ func boolPtr(v bool) *bool { return &v }
 
 // resourceConfig builds a configuration with one of each resource kind.
 func resourceConfig() Config {
-	cfg := Default()
+	cfg := hardenedDefaults()
 	cfg.Cube.APIURL = "http://127.0.0.1:4000"
 	cfg.Cube.TemplateID = "tpl-test"
 	cfg.Repositories.Allowed = []string{"https://github.com/acme/", "https://github.com/other/"}
@@ -144,6 +144,23 @@ func TestScopeCannotWidenRepositoryPolicy(t *testing.T) {
 	req.Repository = "https://github.com/attacker/payload"
 	if _, err := cfg.ResolveResources(req); err == nil {
 		t.Fatal("ResolveResources allowed a scope to widen the global allowlist")
+	}
+}
+
+func TestUnselectedClosedPolicyDoesNotInheritOpenNetworking(t *testing.T) {
+	cfg := resourceConfig()
+	cfg.Hardening.AcknowledgeOpenEgress = false
+	cfg.Egress = map[string]EgressPolicyConfig{"closed": {AllowInternet: boolPtr(false)}}
+	resolved, err := cfg.ResolveResources(RunRequest{AgentHarness: "opencode2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Egress.AllowsInternet() || resolved.EgressDigest == "" {
+		t.Fatalf("unnamed policy was not resolved to explicit deny: %+v", resolved.Egress)
+	}
+	cfg.Scopes["payments"] = ScopeConfig{Repositories: []string{"https://github.com/acme-private/"}}
+	if _, err := cfg.ResolveResources(RunRequest{Scope: "payments", Repository: "https://github.com/acme-private/repo"}); err == nil {
+		t.Fatal("scope escaped global repository path boundary")
 	}
 }
 
