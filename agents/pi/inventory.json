@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "esf/pi/v1",
+  "support_status": "candidate-local-model-validated",
+  "pi_durable": {
+    "version": "1.0.4",
+    "license": "MIT",
+    "git_commit": "7c10bd4337495ee613f2224843ecdf349b80d1df",
+    "minimum_node": "22.19.0"
+  },
+  "runner": {
+    "path": "/opt/esf/agents/pi-runner.mjs",
+    "sha256": "018aec9e0215eff09aede13a2b707f6e6872d1dcf2b44727d5afc3d6e97c42fc"
+  },
+  "runtime": {
+    "path": "/opt/esf/agents/node",
+    "version": "24.21.0",
+    "license": "MIT",
+    "image": "docker.io/library/node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+    "sha256": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c"
+  },
+  "package_lock_sha256": "aade74fa715c38f843231d747f3b095351a450f1276ec3498857543cc96fde99",
+  "model_catalog_sha256": "d3298fc410bdd29e230a590776936cb1bb1abeb0a2b935d04b6745ebf6c5275e",
+  "third_party_notices_sha256": "87acf9fb19ae30e5f8c7485f7f2ef47ae33077b0a8d1189cd86bca88b39c1571"
+}

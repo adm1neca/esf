@@ -11,8 +11,9 @@ Report vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 
 Install:
 
-- Go 1.26.6
-- Node.js 22.22.2 or a compatible newer release, plus npm
+- Go 1.27.1
+- Node.js 24.21.0, plus npm
+- Python 3.14.8 and uv 0.12.23 for optional Python checks
 - Git
 - `just` for repository shortcuts
 - the agent CLI needed for any real execution checks
@@ -38,16 +39,6 @@ CI separately proves that Go formatting is current without changing files,
 runs `go vet`, runs the Go suite with the race detector on Linux and macOS,
 tests and builds the frontend, confirms the tracked frontend bundle is current,
 and builds the `factory` and `machinist` executables.
-
-The default Go suite requires no CubeSandbox, Temporal, model credentials or
-enterprise QMS account. It covers the standard factory and the assurance domain;
-Linux additionally exercises the peer-authenticated local QMS worker. Keep the
-standard factory path working without any quality configuration.
-
-Live quality integration tests are opt-in and require a Linux host, an approved
-scratch Cube template and a local Temporal test server. They create real sandboxes
-and use deterministic fixture harnesses, so do not point them at production data.
-See [the integration test guide](docs/quality-gates-and-providers.md#integration-tests).
 
 The frontend bundle under `internal/controlplane/web/dist` is committed because
 it is embedded into the Go binary. If frontend source changes, rebuild and
@@ -78,7 +69,7 @@ Do not replace a pinned SHA with a mutable tag.
 - Explain what was verified, including browser checks for UI work.
 - Do not commit credentials, local configuration, databases, or run artifacts.
 
-Changes to `main` must go through a pull request and pass the required `check`
+Changes to `master` must go through a pull request and pass the required `check`
 status. By participating, you agree to follow the
 [Code of Conduct](CODE_OF_CONDUCT.md). Contributions use the project's
 [MIT License](LICENSE).

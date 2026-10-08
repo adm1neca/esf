@@ -33,7 +33,6 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
-	"github.com/mitkox/esf/internal/assurance"
 	"github.com/mitkox/esf/internal/factory"
 	"github.com/mitkox/esf/internal/factoryartifacts"
 )
@@ -64,11 +63,11 @@ verification, one verified patch out.`,
 	root.AddCommand(
 		newVersionCommand(),
 		newConfigCommand(&configPath),
+		newCredentialsCommand(),
 		newAgentsCommand(&configPath),
 		newStorageCommand(&configPath),
 		newRetentionCommand(&configPath),
 		newRunCommand(&configPath),
-		newQualityCommand(&configPath),
 		newGetCommand(&configPath),
 		newDescribeCommand(&configPath),
 		newApplyCommand(&configPath),
@@ -82,6 +81,9 @@ verification, one verified patch out.`,
 		newDoctorCommand(&configPath),
 		newSandboxesCommand(&configPath),
 		newInitCommand(),
+		newCancelCommand(&configPath),
+		newHaltCommand(&configPath),
+		newThreatsCommand(&configPath),
 	)
 	return root
 }
@@ -214,11 +216,6 @@ execute an arbitrary program.`,
 				req.SandboxTemplate = cfg.Cube.TemplateID
 			}
 
-			if protected, err := cfg.QualityRequired(req); err != nil {
-				return err
-			} else if protected {
-				return submitQuality(ctx, cfg, req, wait)
-			}
 			runtime, err := factory.NewRuntime(ctx, factory.RuntimeOptions{Config: cfg})
 			if err != nil {
 				return err
@@ -243,6 +240,9 @@ execute an arbitrary program.`,
 			run, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 				ID:        workflowID,
 				TaskQueue: cfg.Temporal.TaskQueue,
+				// The memo is what makes `factory halt --harness/--scope`
+				// possible without registering cluster search attributes.
+				Memo: factory.RunMemoFor(req),
 			}, factory.SoftwareChangeWorkflow, req)
 			if err != nil {
 				return fmt.Errorf("start workflow: %w", err)
@@ -293,7 +293,7 @@ execute an arbitrary program.`,
 // workflow, so the operator still sees the evidence that was produced.
 func reportFailure(ctx context.Context, runtime *factory.Runtime, c client.Client, runID string, cause error) factory.RunManifest {
 	fmt.Fprintf(os.Stderr, "\nworkflow error: %v\n", cause)
-	manifest, err := runtime.ReadRunManifest(context.Background(), runID)
+	manifest, err := factory.ReadManifest(runtime.Artifacts, runID)
 	if err == nil {
 		return manifest
 	}
@@ -343,6 +343,7 @@ func printRunResult(runtime *factory.Runtime, manifest factory.RunManifest, runI
 	if len(manifest.BudgetExceeded) > 0 {
 		fmt.Printf("BUDGET:         EXCEEDED (%s)\n", strings.Join(manifest.BudgetExceeded, "; "))
 	}
+	printHardeningSummary(manifest.Hardening)
 	if manifest.VerificationResult != "" {
 		if manifest.VerificationResult == factory.OutcomeSuccess {
 			fmt.Printf("VERIFICATION:   PASSED\n")
@@ -416,19 +417,6 @@ func newStatusCommand(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if cfg.Quality.Enabled() {
-				var record assurance.Run
-				err = factory.NewQualityClient(cfg.QualitySocket()).Call(ctx, "GET", "/v1/runs/"+runID, nil, &record)
-				if err == nil {
-					if record.Decision != nil {
-						return printJSON(record.Manifest)
-					}
-					return printJSON(record)
-				}
-				if !errors.Is(err, assurance.ErrNotFound) {
-					return err
-				}
-			}
 			runtime, err := factory.NewRuntime(ctx, factory.RuntimeOptions{Config: cfg})
 			if err != nil {
 				return err
@@ -436,7 +424,7 @@ func newStatusCommand(configPath *string) *cobra.Command {
 			defer runtime.Close(ctx)
 
 			// A completed run's authoritative record is its durable manifest.
-			if manifest, err := runtime.ReadRunManifest(context.Background(), runID); err == nil {
+			if manifest, err := factory.ReadManifest(runtime.Artifacts, runID); err == nil {
 				if asJSON {
 					return printJSON(manifest)
 				}
@@ -688,6 +676,21 @@ func newDoctorCommand(configPath *string) *cobra.Command {
 				fmt.Printf("Configuration validation:\n  [FAIL] %v\n\n", err)
 				problems++
 			}
+
+			fmt.Println("Hardening:")
+			fmt.Printf("  egress probe:    %v\n", cfg.Hardening.EgressProbeEnabled())
+			fmt.Printf("  behavior monitor:%v (trip at %s)\n", cfg.Hardening.BehaviorMonitorEnabled(), cfg.Hardening.TripLevel())
+			fmt.Printf("  gate self-mod:   %v\n", cfg.Hardening.AllowGateSelfModification)
+			fmt.Printf("  require non-root:%v\n", cfg.Hardening.RequireNonRoot)
+			fmt.Printf("  alerts:          %v\n", cfg.Hardening.AlertsEnabled())
+			fmt.Printf("  open egress ack: %v\n", cfg.Hardening.AcknowledgeOpenEgress)
+			for _, warning := range cfg.HardeningWarnings() {
+				fmt.Printf("  [WARN] %s\n", warning)
+			}
+			if len(cfg.HardeningWarnings()) == 0 {
+				fmt.Println("  [ok]   no hardening warnings")
+			}
+			fmt.Println()
 
 			fmt.Println("CubeSandbox:")
 			if offline {

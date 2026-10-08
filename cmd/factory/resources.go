@@ -20,7 +20,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,7 +31,6 @@ import (
 	"github.com/spf13/cobra"
 	"go.temporal.io/sdk/client"
 
-	"github.com/mitkox/esf/internal/assurance"
 	"github.com/mitkox/esf/internal/factory"
 	"github.com/mitkox/esf/internal/sandbox"
 )
@@ -128,19 +126,6 @@ Kinds:
 			if configResourceKinds[kind] {
 				return getConfigResource(cfg, kind, filterName(args), asJSON)
 			}
-			if cfg.Quality.Enabled() && kind == "changes" {
-				var data []factory.Change
-				if err = factory.NewQualityClient(cfg.QualitySocket()).Call(ctx, "GET", "/v1/changes", nil, &data); err != nil {
-					return err
-				}
-				filtered := []factory.Change{}
-				for _, c := range data {
-					if (scope == "" || c.Scope == scope) && (filterName(args) == "" || c.ChangeID == filterName(args)) {
-						filtered = append(filtered, c)
-					}
-				}
-				return printJSON(filtered)
-			}
 			runtime, err := factory.NewRuntime(ctx, factory.RuntimeOptions{Config: cfg})
 			if err != nil {
 				return err
@@ -178,7 +163,7 @@ func filterName(args []string) string {
 // answers the live question. Mixing the two would make "the run is not here"
 // ambiguous.
 func getRuns(ctx context.Context, runtime *factory.Runtime, scope, name string, asJSON bool) error {
-	ids, err := runtime.RunIDs(ctx)
+	ids, err := factory.ListRunIDs(runtime.Artifacts)
 	if err != nil {
 		return err
 	}
@@ -187,7 +172,7 @@ func getRuns(ctx context.Context, runtime *factory.Runtime, scope, name string, 
 		if name != "" && id != name {
 			continue
 		}
-		manifest, err := runtime.ReadRunManifest(context.Background(), id)
+		manifest, err := factory.ReadManifest(runtime.Artifacts, id)
 		if err != nil {
 			continue
 		}
@@ -394,16 +379,6 @@ func newDescribeCommand(configPath *string) *cobra.Command {
 			if configResourceKinds[kind] {
 				return getConfigResource(cfg, kind, name, asJSON)
 			}
-			if cfg.Quality.Enabled() && (kind == "runs" || kind == "changes") {
-				var data json.RawMessage
-				err = factory.NewQualityClient(cfg.QualitySocket()).Call(ctx, "GET", "/v1/"+kind+"/"+name, nil, &data)
-				if err == nil {
-					return printJSON(data)
-				}
-				if !errors.Is(err, assurance.ErrNotFound) {
-					return err
-				}
-			}
 			runtime, err := factory.NewRuntime(ctx, factory.RuntimeOptions{Config: cfg})
 			if err != nil {
 				return err
@@ -429,7 +404,7 @@ func newDescribeCommand(configPath *string) *cobra.Command {
 // describeRun prints the manifest, its conditions, the sandbox inventory and
 // the audit trail. It is the one command that answers "what actually happened".
 func describeRun(runtime *factory.Runtime, runID string, asJSON bool) error {
-	manifest, err := runtime.ReadRunManifest(context.Background(), runID)
+	manifest, err := factory.ReadManifest(runtime.Artifacts, runID)
 	if err != nil {
 		return err
 	}
@@ -533,7 +508,7 @@ func describeChange(runtime *factory.Runtime, changeID string, asJSON bool) erro
 	fmt.Printf("  %-28s %-10s %-10s %s\n", "RUN", "REASON", "RESULT", "PARENT")
 	for _, a := range change.Activations {
 		result := ""
-		if manifest, err := runtime.ReadRunManifest(context.Background(), a.RunID); err == nil {
+		if manifest, err := factory.ReadManifest(runtime.Artifacts, a.RunID); err == nil {
 			result = string(manifest.FactoryResult)
 		}
 		fmt.Printf("  %-28s %-10s %-10s %s\n", truncate(a.RunID, 28), a.Reason, orDash(result), orDash(a.ParentRunID))
@@ -623,11 +598,6 @@ the existing workflow instead of starting a second one.`,
 			if err != nil {
 				return err
 			}
-			if protected, err := cfg.QualityRequired(req); err != nil {
-				return err
-			} else if protected {
-				return submitQuality(ctx, cfg, req, wait)
-			}
 			runtime, err := factory.NewRuntime(ctx, factory.RuntimeOptions{Config: cfg})
 			if err != nil {
 				return err
@@ -643,6 +613,7 @@ the existing workflow instead of starting a second one.`,
 			run, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 				ID:        workflowID,
 				TaskQueue: cfg.Temporal.TaskQueue,
+				Memo:      factory.RunMemoFor(req),
 			}, factory.SoftwareChangeWorkflow, req)
 			if err != nil {
 				// Idempotent apply: an existing workflow is the desired state.
@@ -820,13 +791,7 @@ can erase the record of what an agent did is a liability, not a feature.`,
 				if err != nil {
 					return err
 				}
-				change, err := store.Load(name)
-				if err != nil {
-					return err
-				}
-				change.Status = factory.ChangeAbandoned
-				change.UpdatedAt = time.Now().UTC()
-				if err := store.Save(change); err != nil {
+				if err := store.Abandon(name, time.Now().UTC()); err != nil {
 					return err
 				}
 				fmt.Printf("abandoned change %s (runs and evidence retained)\n", name)
@@ -1130,7 +1095,7 @@ func resolveSandboxID(ctx context.Context, runtime *factory.Runtime, runID, expl
 	if explicit != "" {
 		return explicit, nil
 	}
-	if manifest, err := runtime.ReadRunManifest(context.Background(), runID); err == nil && manifest.SandboxID != "" {
+	if manifest, err := factory.ReadManifest(runtime.Artifacts, runID); err == nil && manifest.SandboxID != "" {
 		return manifest.SandboxID, nil
 	}
 	temporalClient, err := runtime.TemporalClient()

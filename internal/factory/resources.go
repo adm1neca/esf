@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitkox/esf/internal/repository"
 	"github.com/mitkox/esf/internal/sandbox"
 	"github.com/mitkox/esf/internal/tomlx"
 )
@@ -262,7 +263,6 @@ type ReviewConfig struct {
 // names the scope it acts in. A scope can only narrow the operator's policy,
 // never widen it — the union of all scopes is a subset of the global config.
 type ScopeConfig struct {
-	QualityPolicies []string `toml:"quality_policies"`
 	// Repositories narrows the global allowlist. Empty inherits the global list.
 	Repositories []string `toml:"repositories"`
 	// Harnesses restricts which harnesses may be used. Empty allows all.
@@ -326,6 +326,29 @@ type ResolvedResources struct {
 	PreviewPorts []int `json:"preview_ports,omitempty"`
 	// Suspend requests checkpointing while paused.
 	Suspend bool `json:"suspend,omitempty"`
+	// AllowPreview is the resolved [sandbox] allow_preview switch. The review
+	// gate honours it too, so an inbound preview can never be published by a
+	// path that the operator has not enabled.
+	AllowPreview bool `json:"allow_preview,omitempty"`
+	// Hardening is the resolved defense-in-depth policy for this run. Workflow
+	// code reads it from here rather than from the live config, because a
+	// config change mid-run would break replay.
+	Hardening ResolvedHardening `json:"hardening,omitempty"`
+}
+
+// ResolvedHardening is the subset of hardening policy the workflow itself must
+// decide on. Everything else is read by activities, which are not replayed.
+type ResolvedHardening struct {
+	// BehaviorMonitorEnabled records whether the agent's output is scanned.
+	BehaviorMonitorEnabled bool `json:"behavior_monitor_enabled"`
+	// AlertOnBlocked records whether a blocked agent raises an alert.
+	AlertOnBlocked bool `json:"alert_on_blocked"`
+	// AllowGateSelfModification records whether a patch may modify its own
+	// gates.
+	AllowGateSelfModification bool `json:"allow_gate_self_modification"`
+	// GatePaths are the repository-relative gate programs a patch must not
+	// modify, in stable order.
+	GatePaths []string `json:"gate_paths,omitempty"`
 }
 
 // Digest is a stable hash of the whole resolved resource set, recorded in the
@@ -432,6 +455,13 @@ func (c Config) ResolveResources(req RunRequest) (ResolvedResources, error) {
 		out.EgressDigest = policy.Digest()
 		out.Egress = policy.Network()
 		out.EgressSummary = policy.Summary()
+	} else if !c.Hardening.AcknowledgeOpenEgress {
+		// A declared closed policy is not necessarily selected by this request.
+		// Never inherit Cube's open deployment default without acknowledgement.
+		policy := EgressPolicyConfig{AllowInternet: boolPointer(false)}
+		out.Egress = policy.Network()
+		out.EgressDigest = policy.Digest()
+		out.EgressSummary = policy.Summary()
 	}
 
 	// Model. Only req.Model names a declared resource: req.AgentModel is a raw
@@ -480,6 +510,13 @@ func (c Config) ResolveResources(req RunRequest) (ResolvedResources, error) {
 		review = *req.Review
 	}
 	out.Review = review
+	out.AllowPreview = c.Sandbox.AllowPreview
+	out.Hardening = ResolvedHardening{
+		BehaviorMonitorEnabled:    c.Hardening.BehaviorMonitorEnabled(),
+		AlertOnBlocked:            c.Hardening.AlertOnBlockedEnabled(),
+		AllowGateSelfModification: c.Hardening.AllowGateSelfModification,
+		GatePaths:                 c.GateScriptPaths(),
+	}
 	if review {
 		timeout := c.Review.Timeout.Std()
 		if timeout <= 0 {
@@ -553,7 +590,7 @@ func narrowedPrefixes(global, scope []string) []string {
 		}
 		for _, g := range global {
 			g = strings.TrimSpace(g)
-			if g != "" && strings.HasPrefix(trimmed, g) {
+			if g != "" && repository.URLMatchesPrefix(trimmed, g) {
 				out = append(out, s)
 				break
 			}
@@ -565,7 +602,7 @@ func narrowedPrefixes(global, scope []string) []string {
 // matchesAnyPrefix reports whether value starts with any allowlisted prefix.
 func matchesAnyPrefix(value string, prefixes []string) bool {
 	for _, p := range prefixes {
-		if p != "" && strings.HasPrefix(value, p) {
+		if p != "" && repository.URLMatchesPrefix(value, p) {
 			return true
 		}
 	}
