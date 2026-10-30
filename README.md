@@ -158,7 +158,6 @@ reverse-proxy examples, throttling and operator workflows.
 | [DSPy/Jev intake](docs/production-deployment.md#optional-dspyjev-intake-advisory) | Optional typed task advice and secure TypeSafe credential setup |
 | [DSPy brief lab](tools/brief_lab/README.md) | Offline, evidence-scored implementation brief experiments |
 | [Production deployment](docs/production-deployment.md) | Service setup, TLS, encryption and recovery |
-| [Docker + Ollama](deployments/docker-ollama/README.md) | Machinist and a local Ollama model in Docker (Windows, macOS, Linux) |
 | [Readiness review](docs/production-readiness.md) | Validation and operational requirements |
 | [Documentation index](docs/README.md) | All guides, harnesses and design records |
 | [Architecture decisions](docs/adr/) | Design rationale |
