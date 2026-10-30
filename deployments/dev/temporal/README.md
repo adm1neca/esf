@@ -22,15 +22,23 @@ was extracted; the upstream repository is not vendored.
 Copy `.env.example` to `.env` and replace the database password with a random
 local value before running `make temporal-up`. Never commit `.env`.
 
+Set `TEMPORAL_SCHEMA_MODE=create` only for empty databases. After restoring an
+existing Temporal database and visibility store, set it to `upgrade`. The
+upgrade path runs only `update-schema`; it never creates databases or invokes
+`setup-schema -v 0.0`. Upstream setup preserves higher existing schema versions;
+the explicit mode records operator intent rather than relying on bootstrap
+idempotence. A missing or invalid mode
+fails before contacting PostgreSQL.
+
 ## What runs
 
 | Service | Image | Host binding | Purpose |
 | --- | --- | --- | --- |
-| `postgresql` | `postgres:16.15-alpine3.24` | `127.0.0.1:5433` | Temporal persistence + visibility store |
-| `temporal-admin-tools` | `temporalio/admin-tools:1.32.0` | — | one-shot schema setup |
-| `temporal` | `temporalio/server:1.32.0` | `127.0.0.1:7233` | gRPC frontend |
-| `temporal-create-namespace` | `temporalio/admin-tools:1.32.0` | — | one-shot namespace creation |
-| `temporal-ui` | `temporalio/ui:2.55.0` | `127.0.0.1:8233` | web UI |
+| `postgresql` | `postgres:18.6-alpine` | `127.0.0.1:5433` | Temporal persistence + visibility store |
+| `temporal-admin-tools` | `temporalio/admin-tools:1.32.1` | — | one-shot schema setup |
+| `temporal` | `temporalio/server:1.32.1` | `127.0.0.1:7233` | gRPC frontend |
+| `temporal-create-namespace` | `temporalio/admin-tools:1.32.1` | — | one-shot namespace creation |
+| `temporal-ui` | `temporalio/ui:2.57.0` | `127.0.0.1:8233` | web UI |
 
 ### Deliberate deviations from upstream
 
@@ -76,8 +84,8 @@ docker compose down          # add -v to also delete the data volume
 
 ## Data
 
-Temporal's own state lives in the `factory-temporal-postgresql-data` Docker
-volume, so workflow history survives `make temporal-down`. Because
+Temporal's own state lives in the configured `POSTGRESQL_DATA_VOLUME`
+(default `factory-temporal-postgresql-data-v18`) Docker volume, so workflow history survives `make temporal-down`. Because
 `restart: unless-stopped` is set, the containers also come back after a host
 reboot.
 
@@ -95,3 +103,30 @@ make temporal-hello        # runs a tagged integration workflow end-to-end
 
 `make temporal-hello` is the proof that gRPC is reachable, the namespace exists,
 and a workflow can actually execute — not merely that a container is running.
+
+PostgreSQL 18 uses a fresh `factory-temporal-postgresql-data-v18` volume mounted
+at `/var/lib/postgresql`. Existing PostgreSQL 16 volumes are preserved. Back up
+the Temporal database and visibility store, restore them into the new 18.6
+instance, and validate Temporal schema/replay before switching an existing
+installation. Do not run `docker compose down -v` during this migration.
+
+The updated compose file requires `POSTGRESQL_DATA_VOLUME` explicitly. An old
+`.env` without it fails before startup. For an existing 16.x installation, keep
+its old compose file, `.env`, and volume until backup/restore validation passes.
+Do not mount the old 16.x volume using the new 18.x directory layout. Use
+distinct container names and ports for the isolated migration stack.
+
+Drain Temporal before the final two-database backup. Compare every restored
+table's row count and content digest before applying schema upgrades. Retain
+the original volume, image digests, private environment file and service
+configuration until the new server serves the same workflow identities,
+statuses and complete histories and can execute a new verified workflow.
+Exercise rollback against the retained PostgreSQL 16 store before accepting
+the migration. After new workflows write to PostgreSQL 18, rolling back to
+the old snapshot loses those new writes; take another backup and plan their
+reconciliation before reverting.
+
+Renaming a container does **not** remove its Compose labels. Compose can
+recreate a renamed rollback container belonging to the same project. Use a
+distinct project for the migration drill and retain a reproducible rollback
+definition or stopped containers without the active project's Compose labels.

@@ -34,7 +34,7 @@ services:
     networks:
       - temporal-network
     volumes:
-      - temporal-postgresql-data:/var/lib/postgresql/data
+      - temporal-postgresql-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -56,6 +56,7 @@ services:
       - POSTGRES_PWD=${POSTGRES_PASSWORD}
       - POSTGRES_SEEDS=postgresql
       - SQL_PASSWORD=${POSTGRES_PASSWORD}
+      - TEMPORAL_SCHEMA_MODE=${TEMPORAL_SCHEMA_MODE:?set TEMPORAL_SCHEMA_MODE to create or upgrade}
     networks:
       - temporal-network
     volumes:
@@ -130,4 +131,4 @@ networks:
 
 volumes:
   temporal-postgresql-data:
-    name: factory-temporal-postgresql-data
+    name: ${POSTGRESQL_DATA_VOLUME:?set POSTGRESQL_DATA_VOLUME after planning the database migration}

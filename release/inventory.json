@@ -1,34 +1,31 @@
 {
-  "release": "v0.6.1",
+  "release": "v0.7.1",
   "release_profile": "binary-preview",
   "qualification_mode": "companion-manifest",
-  "baseline": "2bd466256b6ae5ffcca032127a2583f674211358",
-  "machinist": {
-    "revision": "39435164faf1ff7fad49e41c38a7eb1a00538f21",
-    "schema": 5,
-    "qualification": "unit tests passed; deployment upgrade pending"
-  },
+  "baseline": "ba829056ab728b8e002dddcb702edc0be5b19a1d",
   "dependencies": {
     "cubesandbox": {
-      "release": "0.7.2",
-      "go_sdk": "v0.0.0-20260930061754-e02976ae5472",
-      "qualification": "local lifecycle and model-backed factory compatibility passed; production matrix pending"
+      "release": "0.7.3",
+      "go_sdk": "v0.7.3",
+      "qualification": "Go SDK lifecycle compatibility passed against local 0.7.3 stack; production deployment qualification pending"
     },
     "temporal": {
-      "server": "1.32.0",
-      "admin_tools": "1.32.0",
-      "ui": "2.55.0",
-      "go_sdk": "1.49.0",
-      "api": "1.63.6",
-      "qualification": "legacy history replay and live workflow checks passed; production TLS deployment pending"
+      "server": "1.32.1",
+      "admin_tools": "1.32.1",
+      "ui": "2.57.0",
+      "go_sdk": "1.50.0",
+      "api": "1.64.0",
+      "qualification": "candidate; replay and deployment validation pending"
     },
     "opencode": {
       "package": "@opencode/cli",
-      "version": "2.0.24",
-      "npm_integrity": "sha512-TJ/InXgonQ7KzJ3FXVmP0PxvE/UYZ0k9rH3raTYOWHXWxKVCb0yqdGYaldZl+3875RNlPJZEzX/DSXb9uv4r2w==",
-      "linux_amd64_binary_sha256": "d73436b88f2c412abb4e72056c2f6d133d9651f121952ade7fc3fe95fc9f5ddc",
+      "version": "2.2.0",
+      "npm_integrity": "sha512-05wLSq/M/vqw32uZnrNUGnhSpcpXlF+4OfvKzGghtbPYyF7kB82qfIRSIZQk3vFBIH32HWu8UQCai38b7J36kw==",
+      "linux_amd64_binary_sha256": "87a4d6ac3c1b5691d4fb5e88f473992016b37ede6611c5cb7092fcdb1d91fad0",
       "license": "MIT",
-      "qualification": "pinned image and local-model factory acceptance passed; hosted-provider qualification pending"
+      "qualification": "candidate; refreshed package integrity verified; Cube and provider validation recorded separately",
+      "linux_amd64_package": "@opencode/cli-linux-x64-baseline",
+      "linux_amd64_npm_integrity": "sha512-ComUyKWDToJMBEI1IdxiCGSSdJ0BhXYPoOkb+o2BozDERtTg51UWiomfkiwMIJ3qgR1p/9Itdt/c8oVINUKNmg=="
     },
     "unreal": {
       "release": "0.3.1",
@@ -38,38 +35,43 @@
       "license": "MIT",
       "qualification": "release checksums and local-model factory acceptance passed; hosted-provider qualification pending"
     },
-    "grpc": "1.84.0",
+    "grpc": "1.85.0",
     "otel": "1.47.0",
-    "sqlite": "1.60.1",
-    "dspy": "3.4.0",
-    "frontend": {
-      "vite": "8.3.3",
-      "lucide": "1.52.0",
-      "jsdom": "30.1.2",
-      "react": "19.3.0",
-      "tailwind": "4.3.3"
-    },
-    "postgresql": "16.15"
+    "dspy": "3.4.1",
+    "postgresql": "18.6",
+    "x_net": "0.62.0",
+    "harness2": {
+      "repository": "https://github.com/google-research/harness2",
+      "version": "0.1.0",
+      "commit": "1cfe254e8d25b15f37048c3730134686abe60335",
+      "license": "Apache-2.0",
+      "integration": "ESF-native algorithm and adapted role instructions; no upstream runtime",
+      "editable_surface": [
+        "systemprompt.md",
+        "tool_guidance.md",
+        "memory.md",
+        "skills/*/SKILL.md"
+      ],
+      "production_qualified": false
+    }
   },
   "toolchains": {
-    "go": "1.27.1",
-    "node": "24.21.0",
-    "python_optional": "3.14.8",
-    "kubernetes_qualification": "1.36.2",
-    "helm_qualification": "4.3.0"
+    "go": "1.27.3",
+    "node": "26.12.1",
+    "python_optional": "3.15.2",
+    "kubernetes_qualification": "1.37.2",
+    "helm_qualification": "4.3.1",
+    "uv": "0.13.6"
   },
   "build_bases": {
-    "go": "docker.io/library/golang@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195",
-    "runtime": "gcr.io/distroless/static-debian12@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab",
-    "worker": "docker.io/library/debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
-    "python": "docker.io/library/python@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83",
-    "node": "docker.io/library/node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+    "go": "docker.io/library/golang@sha256:b76020929b709ddb6202afc05410a0faefae20ae05e27ad548b3870092688a69",
+    "runtime": "gcr.io/distroless/static-debian13@sha256:15f8637509792e05b97d83451b0b6ccfa4abd548f997e406ac1e72c87fe1fa78",
+    "python": "docker.io/library/python@sha256:c4158543ecb725b99e57d129dfd43d761d4c43e4577b5e23326aabb223cf7f4e",
+    "node": "docker.io/library/node@sha256:94816674c62774da0d099a947bf4613b9e1972a2733abd0d0cd80e795f8411d0",
     "cube": "ghcr.io/tencentcloud/cubesandbox-base@sha256:a1dd972a4eef85448f967daed3bda42c6be2b7f42bf64c1f4d38e63b3e935472"
   },
   "images": {
     "factory": null,
-    "console": null,
-    "managedworker": null,
     "intake": null,
     "cube_template": null,
     "cube": null,
@@ -77,14 +79,14 @@
     "postgresql": null
   },
   "templates": {
-    "recipe_sha256": "4d95fd0f2c6cb808d66bef09c472aed028fabdd1a17329e2906380049f66755f",
+    "recipe_sha256": "a6e1ff689f30c8938a38d3019e16dd2aad5e1888f5be13dba3768f55b7ab9c2c",
     "architecture": "linux/amd64",
-    "git_package": "1:2.34.1-1ubuntu1.17",
-    "ca_certificates_package": "20260601~22.04.1",
-    "python3_package": "3.10.6-1~22.04.1",
+    "git_package": null,
+    "ca_certificates_package": null,
+    "python3_package": null,
     "cube_template_id": null,
     "template_sha256": null,
-    "qualification": "local image build, agent digest smoke, and model-backed factory acceptance passed; production qualification pending"
+    "qualification": "candidate; refreshed image and template qualification pending"
   },
   "transitive_licenses": "pending SBOM and notice review",
   "qualification": {
@@ -98,5 +100,33 @@
     "agent_acceptance": "pending",
     "cube_lifecycle": "pending",
     "migration_drill": "pending"
+  },
+  "optional_harnesses": {
+    "claude": {
+      "type": "claude",
+      "credential_mode": "cube_egress",
+      "tested_cli_version": "2.1.312",
+      "installation": "operator-provisioned standalone binary or complete runtime in a pinned Cube template",
+      "qualification": "candidate; official archive digest verified; CLI startup verified in Cube; provider qualification pending",
+      "linux_amd64_binary_sha256": "4f4178ce41d83e23341ebfbaecdbcf8ea6bf7baea0690025abe49eeec3a5d01d"
+    },
+    "codex": {
+      "type": "codex",
+      "credential_mode": "cube_egress",
+      "tested_cli_version": "0.165.0",
+      "installation": "operator-provisioned standalone binary or complete runtime in a pinned Cube template",
+      "qualification": "candidate; official archive digest verified; CLI startup verified in Cube; provider qualification pending",
+      "linux_amd64_binary_sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+    }
+  },
+  "service_images": {
+    "temporal": "docker.io/temporalio/server@sha256:acecbab5b0b8ae9cf4012b508866ca97feda3709577bf157b537239f40029049",
+    "temporal-admin": "docker.io/temporalio/admin-tools@sha256:9ef0dc5b063bf4ffd5c1512de72e0e73e225bd2c7006a18ce69bd592a8862a83",
+    "temporal-ui": "docker.io/temporalio/ui@sha256:d944f959d0923c35cd991a17a0edbe087770eff843724b181933e0cfdd563ab2",
+    "postgresql": "docker.io/library/postgres@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5"
+  },
+  "security_tools": {
+    "govulncheck": "1.9.0",
+    "gitleaks": "8.30.1"
   }
 }

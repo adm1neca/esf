@@ -11,6 +11,7 @@ import (
 
 	"github.com/mitkox/esf/internal/agentharness"
 	artifacts "github.com/mitkox/esf/internal/factoryartifacts"
+	"github.com/mitkox/esf/internal/repository"
 	"github.com/mitkox/esf/internal/sandbox/cube"
 	"github.com/mitkox/esf/internal/tomlx"
 	"github.com/mitkox/esf/internal/verification"
@@ -18,7 +19,7 @@ import (
 
 // Version is the factory implementation version recorded in every run
 // manifest. It is what makes "which factory produced this patch?" answerable.
-var Version = "0.6.1"
+var Version = "0.7.1"
 
 // ConfigSchemaVersion changes only when the operator configuration format changes.
 const ConfigSchemaVersion = 1
@@ -28,7 +29,11 @@ const ConfigSchemaVersion = 1
 // Everything in this structure is OPERATOR policy. A task or API caller can
 // choose only: the task text, an approved repository, and an approved revision.
 type Config struct {
-	SchemaVersion int `toml:"schema_version"`
+	HarnessProfiles     map[string]string            `toml:"harness_profiles"`
+	Improvement         ImprovementConfig            `toml:"improvement"`
+	ImprovementPolicies map[string]ImprovementPolicy `toml:"improvement_policies"`
+	ImprovementSuites   map[string]string            `toml:"improvement_suites"`
+	SchemaVersion       int                          `toml:"schema_version"`
 	// FactoryVersion overrides Version in evidence when set.
 	FactoryVersion string `toml:"factory_version"`
 
@@ -70,7 +75,7 @@ type Config struct {
 	// Verification holds the deterministic gate profiles.
 	Verification map[string]verification.Profile `toml:"verification"`
 
-	// Repositories constrains which remote repositories may be used.
+	// Repositories constrains which remote and local repositories may be used.
 	Repositories RepositoriesConfig `toml:"repositories"`
 
 	Observability ObservabilityConfig `toml:"observability"`
@@ -151,11 +156,14 @@ type LimitsConfig struct {
 	DiskMiB             int            `toml:"disk_mib"`
 }
 
-// RepositoriesConfig constrains remote repository access.
+// RepositoriesConfig constrains remote and host repository access.
 type RepositoriesConfig struct {
 	// Allowed is the allowlist of git URL prefixes. Empty disallows all remote
-	// repositories (local sources remain available).
+	// repositories.
 	Allowed []string `toml:"allowed"`
+	// LocalPaths registers exact canonical host repository directories. Empty
+	// disables local sources; this never grants descendant or prefix access.
+	LocalPaths []string `toml:"local_paths"`
 }
 
 // ObservabilityConfig configures trace export.
@@ -173,7 +181,7 @@ type ObservabilityConfig struct {
 //
 // A caller names one of these keys. It can never supply an executable.
 type HarnessConfig struct {
-	// Type selects "opencode", "unreal", "pi", or "generic".
+	// Type selects "opencode", "unreal", "pi", "claude", "codex", or "generic".
 	Type string `toml:"type"`
 	// Pi runs a pinned Node interpreter and a bundled runner, with an explicit
 	// OpenAI-compatible protocol and bounded in-sandbox process recovery.
@@ -209,10 +217,10 @@ type HarnessConfig struct {
 	PassEnv []string `toml:"pass_env"`
 	// PromptMode selects prompt delivery ("stdin_file" or "argv").
 	PromptMode string `toml:"prompt_mode"`
-	// BaseURL points the agent at a model gateway (opencode or unreal harness).
+	// BaseURL points the agent at a protocol-compatible model gateway.
 	BaseURL string `toml:"base_url"`
 	// APIKeyEnv names the host environment variable holding the provider
-	// credential (opencode or unreal harness). Its value is never persisted.
+	// credential. Its value is never persisted.
 	APIKeyEnv string `toml:"api_key_env"`
 	// APIKeyFile is an absolute, owner-only credential file used by
 	// cube_egress mode. It is suitable for systemd credentials or Vault Agent.
@@ -369,6 +377,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	var problems []string
+	if err := repository.ValidateLocalPaths(c.Repositories.LocalPaths); err != nil {
+		problems = append(problems, "repositories.local_paths: "+err.Error())
+	}
 	if c.SchemaVersion != 0 && c.SchemaVersion != ConfigSchemaVersion {
 		problems = append(problems, fmt.Sprintf("unsupported configuration schema_version %d (supported: %d)", c.SchemaVersion, ConfigSchemaVersion))
 	}
@@ -377,6 +388,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.Intake.Validate(); err != nil {
 		problems = append(problems, "intake: "+err.Error())
+	}
+	if err := c.validateImprovement(); err != nil {
+		problems = append(problems, err.Error())
 	}
 	if err := c.validateHardening(); err != nil {
 		problems = append(problems, err.Error())
@@ -405,6 +419,11 @@ func (c Config) Validate() error {
 		problems = append(problems, "sandbox.base_packages: "+err.Error())
 	}
 	for name, h := range c.Harnesses {
+		if kind := strings.ToLower(strings.TrimSpace(h.Type)); kind == "claude" || kind == "codex" {
+			if _, err := buildNativeCLIHarness(name, h); err != nil {
+				problems = append(problems, err.Error())
+			}
+		}
 		if strings.EqualFold(strings.TrimSpace(h.Type), "pi") {
 			if _, err := buildPiHarness(name, h); err != nil {
 				problems = append(problems, err.Error())
@@ -412,8 +431,8 @@ func (c Config) Validate() error {
 		}
 		if h.Preinstalled {
 			kind := strings.ToLower(strings.TrimSpace(h.Type))
-			if kind != "opencode" && kind != "unreal" && kind != "pi" {
-				problems = append(problems, fmt.Sprintf("harness %q: preinstalled is supported only for opencode, unreal, and pi", name))
+			if !supportsManagedHarness(kind) {
+				problems = append(problems, fmt.Sprintf("harness %q: preinstalled is supported only for opencode, unreal, pi, claude, and codex", name))
 			}
 			if !filepath.IsAbs(h.Binary) || len(h.BinarySHA256) != 64 || len(h.Packages) != 0 {
 				problems = append(problems, fmt.Sprintf("harness %q: preinstalled requires an absolute sandbox binary path, a SHA-256 digest, and no packages", name))
@@ -429,8 +448,8 @@ func (c Config) Validate() error {
 		if mode != "" && mode != "environment" && mode != "cube_egress" {
 			problems = append(problems, fmt.Sprintf("harness %q: credential_mode must be environment or cube_egress", name))
 		}
-		if mode == "cube_egress" && strings.ToLower(strings.TrimSpace(h.Type)) != "unreal" && strings.ToLower(strings.TrimSpace(h.Type)) != "opencode" && strings.ToLower(strings.TrimSpace(h.Type)) != "pi" {
-			problems = append(problems, fmt.Sprintf("harness %q: cube_egress credential mode requires unreal, opencode, or pi", name))
+		if mode == "cube_egress" && !supportsManagedHarness(h.Type) {
+			problems = append(problems, fmt.Sprintf("harness %q: cube_egress credential mode requires unreal, opencode, pi, claude, or codex", name))
 		}
 		if strings.TrimSpace(h.APIKeyFile) != "" && mode != "cube_egress" {
 			problems = append(problems, fmt.Sprintf("harness %q: api_key_file requires credential_mode = cube_egress", name))
@@ -617,6 +636,8 @@ func (c Config) BuildHarnesses() (*agentharness.Registry, error) {
 				Timeout:       hc.Timeout.Std(),
 				Packages:      hc.Packages,
 			})
+		case "claude", "codex":
+			harness, err = buildNativeCLIHarness(name, hc)
 		case "pi":
 			harness, err = buildPiHarness(name, hc)
 		default:
@@ -630,6 +651,48 @@ func (c Config) BuildHarnesses() (*agentharness.Registry, error) {
 		}
 	}
 	return registry, nil
+}
+
+func supportsManagedHarness(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "opencode", "unreal", "pi", "claude", "codex":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildNativeCLIHarness(name string, hc HarnessConfig) (*agentharness.NativeCLIHarness, error) {
+	kind := strings.ToLower(strings.TrimSpace(hc.Type))
+	if !strings.EqualFold(strings.TrimSpace(hc.CredentialMode), cubeEgressCredentialMode) {
+		return nil, fmt.Errorf("harness %q: %s requires credential_mode = cube_egress; provider keys must stay outside the sandbox", name, kind)
+	}
+	if hc.Executable != "" || len(hc.Args) != 0 || hc.ModelFlag != "" || hc.PromptMode != "" || len(hc.PassEnv) != 0 || len(hc.ProviderFiles) != 0 || hc.CatalogCache != "" || hc.RuntimeBinary != "" || hc.RuntimeSHA256 != "" || hc.API != "" || hc.ThinkingLevel != "" || hc.MaxProcessRestarts != nil {
+		return nil, fmt.Errorf("harness %q: %s invocation is fixed; custom invocation, pass_env, provider_files, catalog_cache, and Pi runtime options are not allowed", name, kind)
+	}
+	provider := "openai"
+	if kind == "claude" {
+		provider = "anthropic"
+	}
+	if hc.Provider != "" && !strings.EqualFold(hc.Provider, provider) {
+		return nil, fmt.Errorf("harness %q: %s requires provider %s", name, kind, provider)
+	}
+	opts := agentharness.NativeCLIOptions{
+		Name: name, Binary: hc.Binary, BinarySHA256: hc.BinarySHA256, Preinstalled: hc.Preinstalled,
+		Model: hc.Model, BaseURL: hc.BaseURL, APIKeyEnv: hc.APIKeyEnv, Timeout: hc.Timeout.Std(), Packages: hc.Packages,
+		EgressManaged: strings.EqualFold(strings.TrimSpace(hc.CredentialMode), "cube_egress"),
+	}
+	var h *agentharness.NativeCLIHarness
+	var err error
+	if kind == "claude" {
+		h, err = agentharness.NewClaude(opts)
+	} else {
+		h, err = agentharness.NewCodex(opts)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("harness %q: %w", name, err)
+	}
+	return h, nil
 }
 
 func buildPiHarness(name string, hc HarnessConfig) (*agentharness.PiHarness, error) {

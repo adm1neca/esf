@@ -101,7 +101,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 	return &Runtime{
 		Config:    cfg,
 		Provider:  provider,
-		Repos:     repository.New(cfg.Repositories.Allowed, repository.WithLogger(log)),
+		Repos:     repository.New(cfg.Repositories.Allowed, repository.WithLocalPaths(cfg.Repositories.LocalPaths), repository.WithLogger(log)),
 		Harnesses: harnesses,
 		Profiles:  cfg.VerificationProfiles(),
 		Artifacts: artifactFactory,
@@ -234,6 +234,9 @@ func (r *Runtime) RunWorker(ctx context.Context) error {
 	})
 
 	w.RegisterWorkflowWithOptions(SoftwareChangeWorkflow, workflowRegistrationOptions())
+	w.RegisterWorkflow(ImprovementProbeWorkflow)
+	w.RegisterWorkflow(ImprovementSuiteWorkflow)
+	w.RegisterWorkflow(ImprovementTrialWorkflow)
 
 	// RegisterActivity panics on a bad method set, so it has no error return.
 	w.RegisterActivity(acts)
