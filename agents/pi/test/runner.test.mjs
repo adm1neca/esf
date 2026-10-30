@@ -216,8 +216,15 @@ test('committed completion survives death before the supervisor terminal notific
 
 test('unsafe interrupted file tool is recorded instead of replayed', async () => {
   const f = await fixture(({ res, calls, body }) => {
-    if (calls === 1) answer(res, '', { tool: { name: 'read', args: { path: 'waiting' } } });
-    else { assert.match(JSON.stringify(body.messages), /interrupted/i); answer(res); }
+    // Pi rejects nonregular reads without blocking. A FIFO write keeps the
+    // unsafe tool in flight so recovery must record it instead of replaying it.
+    if (calls === 1) answer(res, '', { tool: { name: 'write', args: { path: 'waiting', content: 'must not replay' } } });
+    else {
+      const toolResult = body.messages.find(message => message.role === 'tool' && message.tool_call_id === 'tool-1');
+      assert.ok(toolResult, 'recovery must include the interrupted tool result');
+      assert.match(toolResult.content, /Tool write was interrupted/);
+      answer(res);
+    }
   });
   try {
     const fifo = spawn('mkfifo', [path.join(f.repo, 'waiting')]); await once(fifo, 'exit');
@@ -251,17 +258,29 @@ test('surviving processes and uncertain process inspection prevent recovery', as
   } finally { await uncertain.close(); }
 });
 
+// Shared CI runners can start unrelated processes between inventory snapshots.
+// These cases isolate journal integrity and restart allowance; the preceding
+// surviving-process test continues to exercise the real /proc inventory.
+function launchWithControlledInventory(request) {
+  const events = [];
+  const finished = supervise(request, runner, {
+    inventory: async () => new Map(),
+    log: event => events.push(event),
+  }).then(code => ({ code, events }));
+  return { events, finished };
+}
+
 test('corrupt journal and exhausted allowance never start a third engine', async () => {
   const corrupt = await fixture(() => {});
   try {
-    const run = launch(corrupt.request); await until(() => corrupt.calls() === 1);
+    const run = launchWithControlledInventory(corrupt.request); await until(() => corrupt.calls() === 1);
     await fs.writeFile(path.join(corrupt.request.state_dir, 'journal', 'main.jsonl'), 'not-json\nnot-json\n');
     process.kill(run.events.find(e => e.type === 'engine_started').pid, 'SIGKILL');
     assert.equal((await run.finished).code, 1); assert.equal(corrupt.calls(), 1);
   } finally { await corrupt.close(); }
   const f = await fixture(() => {});
   try {
-    const run = launch(f.request); await until(() => f.calls() === 1);
+    const run = launchWithControlledInventory(f.request); await until(() => f.calls() === 1);
     process.kill(run.events.find(e => e.type === 'engine_started').pid, 'SIGKILL');
     await until(() => f.calls() === 2 && run.events.filter(e => e.type === 'engine_started').length === 2);
     process.kill(run.events.filter(e => e.type === 'engine_started')[1].pid, 'SIGKILL');
@@ -271,11 +290,16 @@ test('corrupt journal and exhausted allowance never start a third engine', async
 });
 
 test('a restart consumes the original deadline', async () => {
-  const f = await fixture(() => {}); f.request.timeout_ms = 900;
+  // Leave enough time for process startup on a shared runner. Crash after most
+  // of the original budget is spent: resetting it would exceed the upper bound
+  // below by several seconds. Isolate this deadline check from /proc churn.
+  const f = await fixture(() => {}); f.request.timeout_ms = 10_000;
   try {
-    const start = Date.now(); const run = launch(f.request); await until(() => f.calls() === 1);
-    await delay(300); process.kill(run.events.find(e => e.type === 'engine_started').pid, 'SIGKILL');
-    assert.equal((await run.finished).code, 1); assert.ok(Date.now() - start < 1600);
+    const start = Date.now(); const run = launchWithControlledInventory(f.request); await until(() => f.calls() === 1);
+    await delay(Math.max(0, 6_000 - (Date.now() - start)));
+    process.kill(run.events.find(e => e.type === 'engine_started').pid, 'SIGKILL');
+    await until(() => f.calls() === 2 && run.events.filter(e => e.type === 'engine_started').length === 2);
+    assert.equal((await run.finished).code, 1); assert.ok(Date.now() - start < 13_000);
     const terminal = await summary(f, 'terminal.json'); assert.equal(terminal.status, 'timeout'); assert.equal(terminal.restarts, 1);
   } finally { await f.close(); }
 });
